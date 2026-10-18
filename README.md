@@ -50,8 +50,13 @@ interception, game-binary changes, input automation, or hosted service is used.
 - [First-person GSI setup reports in Valve's issue tracker](https://github.com/ValveSoftware/Dota-2/issues/2333)
   provide a broader component list and show setup can fail. Reports are not an
   official schema or evidence that this machine receives chat.
-- **Actual Dota payloads received/inspected: none yet. Team chat: unverified.
-  All chat: unverified.** No undocumented `chat` field or configuration flag is
+- Initial automated work received no live Dota payloads. The user subsequently
+  supplied a real-session metadata report: 745 accepted requests, game-state
+  components present, and 48 payloads containing each of their own team/all
+  markers. This is user-observed live-session evidence for the strings' presence,
+  not an inspected raw payload or confirmed chat schema. Matching field paths,
+  channel metadata, and other players' incoming messages remain unverified.
+  No undocumented `chat` field or configuration flag is
   invented. An absent marker is only evidence about the tested configuration,
   build, match type and time window; it is not proof of universal absence.
 
@@ -129,7 +134,9 @@ secret in the marker. If choosing another port, use the same `--port` for both
    Inspecting the full schema and attributing player/channel will require a
    follow-up controlled local payload inspection if hits occur. No identities
    or channels are inferred by this diagnostic.
-5. Ctrl+C saves `.local/evidence-report.json`. It contains counts, presence counts
+5. The report is now saved at startup, every 5 seconds, and on Ctrl+C to
+   `.local/evidence-report.json`. A previous report is backed up with a timestamp
+   at receiver startup. It contains counts, presence counts
    for known configured components (such as map/player), UTC receipt
    time and redacted structural paths. No chat text, marker text, player names,
    IDs, payload values or auth tokens are saved. The receiver holds only a
@@ -148,6 +155,29 @@ visual check. This approach has **not** been selected or implemented; it require
 the user's decision, and outgoing chat would still use manual paste unless the
 channel can be determined reliably.
 
+## Follow-up: identify the matching field paths
+
+The original report redacted every key and cannot reveal where the markers
+appeared. The updated receiver can record matched paths and sibling field types:
+
+```powershell
+.\.venv\Scripts\python.exe diagnostic.py --inspect-marker-paths --team-marker D2TEAM_9531 --all-marker D2ALL_0642
+```
+
+No configuration reinstall or `--prepare` is needed when using the same port.
+Send those fresh phrases in their respective Dota channels. For incoming tests,
+ask a friend to send them and note the sender/channel separately. Only using
+your own messages does not verify other players' chat.
+
+Share the report's `marker_locations` section and your sender/channel observations.
+The labels `team` and `all` refer to the chosen test markers; they do not identify
+channel metadata. This opt-in records a bounded set of paths and sibling **types**,
+never their values. A display allowlist retains common schema-like key names;
+unknown/dynamic keys are hashed because they might contain names or chat text.
+The allowlist is for display only and does not assert any Dota field exists.
+Default inspection remains off. The previous report cannot be retroactively
+expanded, since raw payloads were never saved.
+
 ## Automated checks
 
 ```powershell
@@ -162,9 +192,10 @@ Gemini, PySide6, an overlay or outgoing input. No paid API is called.
 Dependencies for stage 1: Python standard library only. `pyproject.toml` reserves
 an optional PySide6 dependency for the desktop stage. `.env.example` is a
 placeholder for stage 2; do not paste a Gemini key into commands, issues, or logs.
-Validation in this environment: 18 unittest cases passed on Python 3.12.15;
+Validation in this environment: 23 unittest cases passed on Python 3.12.15;
 `--prepare`, `--help` and byte compilation also checked. Only synthetic HTTP
-requests were used. No real Dota match, payload, chat feed or GUI was tested.
+requests were used by the developer. The user provided the live-session metadata
+described above; raw payload field paths, incoming chat and the GUI remain untested.
 
 The demo UI, translation tests and PyInstaller packaging command are intentionally
 pending their implementation stages; a functioning desktop app is not claimed.

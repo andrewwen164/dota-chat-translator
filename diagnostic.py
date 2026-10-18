@@ -24,6 +24,52 @@ DATA_COMPONENTS = ("provider", "map", "player", "hero", "abilities", "items",
                    "events", "buildings", "league", "draft", "wearables",
                    "minimap", "roshan", "couriers", "neutralitems")
 
+# Display allowlist only: these are NOT claims about Dota's schema. Unknown
+# keys may be player names or message text, so retain only their hashed label.
+DISPLAY_KEYS = frozenset(DATA_COMPONENTS) | frozenset({
+    "chat", "chats", "messages", "message", "text", "type", "channel",
+    "team", "teamonly", "team_only", "playerid", "player_id", "userid",
+    "user_id", "accountid", "steamid", "name", "timestamp", "time",
+    "event", "event_type", "value", "previously", "added", "removed",
+    "chat_message", "chat_type", "message_type", "sender", "sender_id",
+})
+
+
+def display_key(key):
+    if key in DISPLAY_KEYS:
+        return key
+    return "key_sha256_" + hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def marker_locations(value, markers, path="$", parent=None):
+    """Only matched paths and sibling TYPES; never persist field values."""
+    if isinstance(value, str):
+        for label, marker in markers.items():
+            if marker and marker in value:
+                yield {
+                    "marker_label_not_detected_channel": label,
+                    "path": path,
+                    "parent_fields_types": {
+                        display_key(k): type(v).__name__
+                        for k, v in list(parent.items())[:64]
+                        if k.casefold() != "auth"
+                    } if isinstance(parent, dict) else {},
+                }
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            if key.casefold() != "auth":
+                yield from marker_locations(item, markers,
+                                            path + "." + display_key(key), value)
+    elif isinstance(value, list):
+        for item in value:
+            yield from marker_locations(item, markers, path + "[]", value)
+
+
+def save_report(path, evidence):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(evidence.report(), indent=2), encoding="utf-8")
+    temporary.replace(path)
+
 
 def walk(value, path="$", depth=0):
     if depth > 32:
@@ -64,7 +110,7 @@ def decode_payload(body):
 
 
 class Evidence:
-    def __init__(self, team_marker="", all_marker=""):
+    def __init__(self, team_marker="", all_marker="", inspect_marker_paths=False):
         self.lock = threading.Lock()
         self.markers = {"team": team_marker, "all": all_marker}
         self.requests = 0
@@ -75,6 +121,8 @@ class Evidence:
         self.components = Counter()
         self.latest = None
         self.string_count = 0
+        self.inspect_marker_paths = inspect_marker_paths
+        self.locations = Counter()
 
     def record(self, payload):
         # Auth is excluded from inspection, hashing, and all reports.
@@ -90,6 +138,12 @@ class Evidence:
                 for channel, marker in self.markers.items():
                     if marker and marker in value:
                         hits.add(channel)
+        locations = set()
+        if self.inspect_marker_paths:
+            for location in marker_locations(safe, self.markers):
+                locations.add(json.dumps(location, sort_keys=True))
+                if len(locations) >= 32:
+                    break
         with self.lock:
             self.requests += 1
             self.duplicates += int(digest == self.previous)
@@ -99,6 +153,9 @@ class Evidence:
             self.components.update(k for k in DATA_COMPONENTS if k in safe)
             self.string_count = strings
             self.latest = datetime.now(timezone.utc).isoformat()
+            for location in locations:
+                if location in self.locations or len(self.locations) < 32:
+                    self.locations[location] += 1
 
     def report(self):
         with self.lock:
@@ -112,6 +169,9 @@ class Evidence:
                 "requests_with_known_components": dict(self.components),
                 "configured_markers": {k: bool(v) for k, v in self.markers.items()},
                 "requests_containing_marker": dict(self.hits),
+                "marker_path_inspection_enabled": self.inspect_marker_paths,
+                "marker_locations": [dict(json.loads(location), requests=count)
+                                     for location, count in sorted(self.locations.items())],
                 "observed_shapes_keys_redacted": dict(self.shapes),
                 "interpretation": "Marker hits are candidates; confirm against your actual in-game sends. "
                                   "No hits is inconclusive without receiving game state during both tests.",
@@ -220,6 +280,8 @@ def main():
     parser.add_argument("--port", type=int, default=3009)
     parser.add_argument("--team-marker", default="")
     parser.add_argument("--all-marker", default="")
+    parser.add_argument("--inspect-marker-paths", action="store_true",
+                        help="record matched field paths and sibling types; unknown keys hashed, all values omitted")
     parser.add_argument("--prepare", action="store_true", help="generate local config and token, then exit")
     parser.add_argument("--install", type=Path, metavar="DOTA_ROOT", help="install prepared config, backing up this app's previous config")
     args = parser.parse_args()
@@ -245,16 +307,26 @@ def main():
     token = token_path.read_text(encoding="utf-8").strip()
     if not token:
         parser.error("empty receiver token; remove local config and run --prepare")
-    evidence = Evidence(args.team_marker, args.all_marker)
+    evidence = Evidence(args.team_marker, args.all_marker, args.inspect_marker_paths)
     server = make_server(token, evidence, args.port)
+    report_path = local / "evidence-report.json"
+    if report_path.exists():
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        shutil.copy2(report_path, local / f"evidence-report-{stamp}.json")
+    save_report(report_path, evidence)
     print(f"Listening only on http://127.0.0.1:{args.port}/gsi")
     print("LIVE CHAT UNVERIFIED. No chat text, auth tokens, or player IDs are logged.")
-    print("Send distinct test markers in real team/all chat. Ctrl+C saves a metadata-only report.")
+    print("Send distinct test markers in real team/all chat. Report saved every 5 seconds and on Ctrl+C.")
+    print(f"Metadata report: {report_path}")
     def status():
         while not stopped.wait(5):
             r = evidence.report()
             print(f"received={r['accepted_requests']} duplicates={r['consecutive_duplicate_payloads']} "
                   f"marker_hits={r['requests_containing_marker']}", flush=True)
+            try:
+                save_report(report_path, evidence)
+            except OSError:
+                print("Could not save periodic report; retrying next interval.", flush=True)
     stopped = threading.Event()
     reporter = threading.Thread(target=status, daemon=True)
     reporter.start()
@@ -264,9 +336,9 @@ def main():
         pass
     finally:
         stopped.set()
+        reporter.join(timeout=3)
         server.server_close()
-        report_path = local / "evidence-report.json"
-        report_path.write_text(json.dumps(evidence.report(), indent=2), encoding="utf-8")
+        save_report(report_path, evidence)
         print(f"Saved metadata report: {report_path}")
 
 

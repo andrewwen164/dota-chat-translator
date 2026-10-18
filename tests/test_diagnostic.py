@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from diagnostic import (CONFIG_NAME, MAX_BODY, Evidence, configuration,
-                        decode_payload, install_config, make_server)
+                        decode_payload, install_config, make_server, save_report)
 
 
 class PayloadTests(unittest.TestCase):
@@ -59,6 +59,54 @@ class PayloadTests(unittest.TestCase):
         e.record({"map": {"name": "private_value"}, "player": {"name": "private_name"}})
         self.assertEqual(e.report()["requests_with_known_components"], {"map": 1, "player": 1})
         self.assertNotIn("private_", json.dumps(e.report()))
+
+    def test_inspection_is_opt_in(self):
+        e = Evidence("needle")
+        e.record({"events": [{"text": "needle"}]})
+        self.assertEqual(e.report()["marker_locations"], [])
+
+    def test_paths_and_sibling_types_without_values(self):
+        e = Evidence("TEAM_TEST", "ALL_TEST", inspect_marker_paths=True)
+        # Synthetic fixture, not a claimed Dota field layout.
+        payload = {"events": [{"text": "TEAM_TEST private_chat",
+                               "channel": "private_channel", "player_id": 123456,
+                               "auth": {"token": "ALL_TEST"}}]}
+        e.record(payload)
+        e.record(payload)
+        locations = e.report()["marker_locations"]
+        self.assertEqual(len(locations), 1)
+        self.assertEqual(locations[0]["path"], "$.events[].text")
+        self.assertEqual(locations[0]["parent_fields_types"],
+                         {"text": "str", "channel": "str", "player_id": "int"})
+        self.assertEqual(locations[0]["requests"], 2)
+        serialized = json.dumps(locations)
+        for private in ("TEAM_TEST", "ALL_TEST", "private_chat", "private_channel", "123456", "token"):
+            self.assertNotIn(private, serialized)
+
+    def test_dynamic_keys_are_hashed(self):
+        e = Evidence("needle", inspect_marker_paths=True)
+        e.record({"A_private_player_name": {"private_chat_as_key": "needle"}})
+        serialized = json.dumps(e.report())
+        self.assertNotIn("A_private_player_name", serialized)
+        self.assertNotIn("private_chat_as_key", serialized)
+        self.assertIn("key_sha256_", serialized)
+
+    def test_locations_remain_bounded(self):
+        e = Evidence("needle", inspect_marker_paths=True)
+        for n in range(100):
+            e.record({f"dynamic_{n}": "needle"})
+        self.assertLessEqual(len(e.report()["marker_locations"]), 32)
+
+    def test_report_saved_before_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "report.json"
+            e = Evidence()
+            save_report(path, e)
+            self.assertEqual(json.loads(path.read_text())["accepted_requests"], 0)
+            e.record({"map": {}})
+            save_report(path, e)
+            self.assertEqual(json.loads(path.read_text())["accepted_requests"], 1)
+            self.assertFalse(path.with_suffix(".tmp").exists())
 
 
 class ServerTests(unittest.TestCase):
