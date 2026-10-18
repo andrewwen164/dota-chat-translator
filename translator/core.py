@@ -13,24 +13,25 @@ import threading
 import time
 from typing import Callable
 
-PROMPT_VERSION = "dota-translate-1"
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+PROMPT_VERSION = "dota-translate-openai-2"
+DEFAULT_MODEL = "gpt-6-luna"
 TARGETS = ("English", "Russian", "Spanish", "Chinese")
 ERROR_MESSAGES = {
     "request_failed": "translation request failed",
-    "missing_key": "Gemini key missing or still a placeholder; edit .env and restart",
-    "invalid_key": "Gemini key invalid or expired; replace it locally and restart",
-    "permission_denied": "Google denied access; check key restrictions, API/project access and region",
-    "model_unavailable": "model unavailable; check GEMINI_MODEL and model access",
-    "quota": "Google quota/rate limit reached; check project quota and billing",
-    "invalid_request": "Google rejected the request; check model and SDK compatibility",
-    "network": "cannot connect to Google; check network/proxy/firewall",
-    "timeout": "Google request timed out",
-    "server": "Google service temporarily unavailable",
-    "blocked": "Google blocked the translation response",
+    "missing_key": "OpenAI key missing or still a placeholder; set OPENAI_API_KEY in .env and restart",
+    "invalid_key": "OpenAI key invalid or expired; replace it locally and restart",
+    "permission_denied": "OpenAI denied access; check API key/project permissions and region",
+    "model_unavailable": "model unavailable; check OPENAI_MODEL and model access",
+    "quota": "OpenAI rate limit reached; check project limits",
+    "billing": "OpenAI API quota exhausted; check API credits and billing limits",
+    "invalid_request": "OpenAI rejected the request; check model and SDK compatibility",
+    "network": "cannot connect to OpenAI; check network/proxy/firewall",
+    "timeout": "OpenAI request timed out",
+    "server": "OpenAI service temporarily unavailable",
+    "blocked": "OpenAI refused or blocked the translation response",
     "truncated": "model response was truncated",
     "invalid_response": "model returned an empty or invalid translation response",
-    "dependency": "Gemini SDK dependency missing; install requirements.txt",
+    "dependency": "OpenAI SDK dependency missing; install requirements.txt",
     "cache": "local cache could not be read or written; check data-folder permissions",
 }
 SYSTEM_PROMPT = """You translate Dota 2 player chat. The user supplies a JSON data
@@ -209,7 +210,9 @@ def classify_api_error(exc):
     if isinstance(exc, ImportError):
         return ApiFailure(reason="dependency")
     import httpx
-    code = getattr(exc, "code", None)
+    code = getattr(exc, "status_code", None)
+    if code is None:
+        code = getattr(exc, "code", None)
     if isinstance(code, str) and code.isdigit():
         code = int(code)
     if type(code) is not int:
@@ -217,7 +220,10 @@ def classify_api_error(exc):
     # Inspect remote wording only for known key-error patterns. Do not display,
     # persist, interpolate, or log any portion of it (it may contain secrets).
     wording = str(getattr(exc, "message", ""))[:4000].casefold()
-    if any(x in wording for x in ("api key not valid", "invalid api key", "api_key_invalid",
+    error_code = getattr(exc, "code", None)
+    if error_code == "insufficient_quota":
+        return ApiFailure(reason="billing", http_status=code)
+    if error_code == "invalid_api_key" or any(x in wording for x in ("api key not valid", "invalid api key", "api_key_invalid", "incorrect api key",
                                   "api key expired", "api_key_expired")):
         return ApiFailure(reason="invalid_key", http_status=code)
     reason = {400: "invalid_request", 401: "invalid_key", 403: "permission_denied",
@@ -228,43 +234,52 @@ def classify_api_error(exc):
         reason = "timeout"
     elif isinstance(exc, (ConnectionError, httpx.NetworkError)):
         reason = "network"
+    try:
+        from openai import APIConnectionError, APITimeoutError
+        if isinstance(exc, APITimeoutError):
+            reason = "timeout"
+        elif isinstance(exc, APIConnectionError):
+            reason = "network"
+    except ImportError:
+        pass
     return ApiFailure(retryable=reason in ("timeout", "network", "server", "quota"),
                       reason=reason or "request_failed", http_status=code)
 
 
-class Gemini:
+class OpenAITranslator:
     def __init__(self, key, model):
         self.key, self.model, self.client = key, model, None
 
     async def translate(self, text, target):
-        if not self.key or self.key == "your_gemini_api_key_here":
+        if not self.key or self.key in ("your_openai_api_key_here", "your_gemini_api_key_here"):
             raise ApiFailure(reason="missing_key")
         try:
-            from google import genai
-            from google.genai import types
+            from openai import AsyncOpenAI
             if self.client is None:
-                self.client = genai.Client(api_key=self.key, http_options=types.HttpOptions(
-                    timeout=10000, retry_options=types.HttpRetryOptions(attempts=1)))
-            response = await self.client.aio.models.generate_content(
+                self.client = AsyncOpenAI(api_key=self.key, base_url="https://api.openai.com/v1",
+                                          timeout=10.0, max_retries=0)
+            schema = {"type": "object", "properties": {
+                "translation": {"type": "string"},
+                "source_language": {"type": "string", "enum": ["en", "ru", "es", "zh", "other", "unknown"]}},
+                "required": ["translation", "source_language"], "additionalProperties": False}
+            options = {"reasoning": {"effort": "none"}} if self.model == DEFAULT_MODEL else {}
+            response = await self.client.responses.create(
                 model=self.model,
-                contents=json.dumps({"source_text": text, "target_language": target}, ensure_ascii=False),
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT, temperature=0.1, max_output_tokens=1024,
-                    response_mime_type="application/json",
-                    response_json_schema={"type": "object", "properties": {
-                        "translation": {"type": "string"},
-                        "source_language": {"type": "string", "enum": ["en", "ru", "es", "zh", "other", "unknown"]}},
-                        "required": ["translation", "source_language"], "additionalProperties": False},
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)))
-            candidates = response.candidates
-            if not candidates:
-                raise ApiFailure(reason="blocked" if getattr(response.prompt_feedback, "block_reason", None)
-                                 else "invalid_response")
-            finish = str(getattr(candidates[0].finish_reason, "value", candidates[0].finish_reason))
-            if finish != "STOP":
-                raise ApiFailure(reason="truncated" if finish == "MAX_TOKENS" else "blocked")
+                instructions=SYSTEM_PROMPT,
+                input=json.dumps({"source_text": text, "target_language": target}, ensure_ascii=False),
+                text={"format": {"type": "json_schema", "name": "dota_translation", "schema": schema, "strict": True}},
+                store=False, max_output_tokens=1024, **options)
+            if response.status == "incomplete":
+                reason = getattr(response.incomplete_details, "reason", "")
+                raise ApiFailure(reason="blocked" if reason == "content_filter" else "truncated")
+            if response.status != "completed":
+                raise ApiFailure(reason="invalid_response")
+            for item in response.output:
+                for part in getattr(item, "content", []):
+                    if getattr(part, "type", None) == "refusal":
+                        raise ApiFailure(reason="blocked")
             try:
-                return parse_translation(response.text)
+                return parse_translation(response.output_text)
             except (ValueError, TypeError):
                 raise ApiFailure(reason="invalid_response") from None
         except ApiFailure:
@@ -274,8 +289,7 @@ class Gemini:
 
     async def close(self):
         if self.client:
-            await self.client.aio.aclose()
-            self.client.close()
+            await self.client.close()
 
 
 class Engine:

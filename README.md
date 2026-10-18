@@ -1,6 +1,6 @@
 # Dota Chat
 
-Personal Windows desktop translator using Python, PySide6 and your own Gemini key.
+Personal Windows desktop translator using Python, PySide6 and your own OpenAI API key.
 No accounts, subscriptions, hosted backend, auto-updater, memory access, injection,
 game-traffic interception or game-binary changes.
 
@@ -21,7 +21,7 @@ cd "$env:TEMP\dota-chat-translator"
 ```
 
 OFFLINE DEMO uses labeled Russian, Spanish and Chinese samples with fixed
-translations. No Gemini client, GSI receiver or API credits are used. The outgoing
+translations. No OpenAI client, GSI receiver or API credits are used. The outgoing
 demo supports **Push mid after Roshan** into Russian, Spanish or Chinese. Other
 demo input deliberately falls back to the original. Demo cache is separate.
 
@@ -42,10 +42,14 @@ Or use `py -3.12 -m venv .venv`, then
 Reuse an existing `.venv`; do not clear it. Administrator access is not required.
 `requirements-tested.txt` lists the exact direct dependency versions used locally.
 
-## Use your Gemini key
+## Use your OpenAI API key
 
 ```powershell
-Copy-Item .env.example .env
+if (Test-Path .env) {
+    Copy-Item .env (".env.backup-" + (Get-Date -Format yyyyMMdd-HHmmss))
+} else {
+    Copy-Item .env.example .env
+}
 notepad .env
 ```
 
@@ -55,16 +59,27 @@ Fill in your key locally, save, then run:
 .\.venv\Scripts\python.exe app.py
 ```
 
-Environment variables override `.env`. Never share or commit your key. The key is
-never displayed in Settings, logged or included in packaging. The default model is
-`gemini-3.5-flash-lite`, listed as cost-effective in Google's
-[model documentation](https://ai.google.dev/gemini-api/docs/models). Change it in
-Settings and restart, or set `GEMINI_MODEL` in `.env`/environment (takes precedence
-over Settings). Model availability, quota and cost depend on your Google project.
-No paid API request was made during development.
+Use `OPENAI_API_KEY=your_openai_api_key_here` (replace the placeholder locally) and
+`OPENAI_MODEL=gpt-6-luna`. Environment variables override `.env`. Never share or
+commit your key. The key is never displayed in Settings, logged or bundled.
+The default is the efficient, high-volume `gpt-6-luna` model from the
+[official model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).
+Change it in Settings and restart, or set `OPENAI_MODEL` in `.env`/environment
+(takes precedence over Settings). Model availability, quota and billing depend on
+your OpenAI API project. No paid API request was made during development.
 
-Google's official [`google-genai` SDK](https://googleapis.github.io/python-genai/)
-uses async Generate Content with structured JSON output and no tools. Chat is
+This app originally used Google's Gemini API at the user's request, and now uses
+OpenAI at the user's request. The services have different keys, models and billing.
+An OpenAI key cannot authenticate to Gemini. Old `GEMINI_API_KEY` and `GEMINI_MODEL`
+variables are ignored; do not merely rename a Google-issued key. Edit your existing
+`.env` locally to set the key issued by OpenAI. The app never automatically moves
+an unknown credential between providers. Saved Gemini model selections migrate to
+the new default in memory while preserving your overlay and GSI settings. Settings
+changes are backed up before saving. Old provider cache entries cannot be reused
+as OpenAI results: model keys are provider-qualified and the prompt version changed.
+
+The official [`openai` Python SDK](https://developers.openai.com/api/docs/quickstart)
+uses async Responses with strict structured JSON output, `store=False`, and no tools. Chat is
 untrusted translation data, not instructions. The system prompt preserves Dota
 names, abbreviations, tone and profanity. Blocked, malformed, truncated or failed
 responses show the original message; the model's language quality needs local
@@ -195,7 +210,7 @@ After confirming the source app works locally:
 ```powershell
 uv pip install --python .venv\Scripts\python.exe pyinstaller
 $packageRoot = Join-Path (Get-Location) ("dist\build-" + (Get-Date -Format yyyyMMdd-HHmmss))
-.\.venv\Scripts\python.exe -m PyInstaller --onedir --windowed --distpath $packageRoot --name DotaChat --collect-all lingua --collect-all google.genai app.py
+.\.venv\Scripts\python.exe -m PyInstaller --onedir --windowed --distpath $packageRoot --name DotaChat --collect-all lingua --collect-all openai app.py
 & "$packageRoot\DotaChat\DotaChat.exe" --demo
 ```
 

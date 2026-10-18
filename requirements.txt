@@ -1,4 +1,4 @@
 PySide6>=6.8,<7
-google-genai>=1.55,<3
+openai>=3.35,<4
 python-dotenv>=1,<2
 lingua-language-detector>=2,<3

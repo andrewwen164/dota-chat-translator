@@ -58,8 +58,10 @@ class Settings:
                 result.overlay_geometry = geometry
             result.mapping = Mapping.from_dict(value.get("mapping", {}))
             result.outgoing_hotkey = value.get("outgoing_hotkey") is True
-        if os.getenv("GEMINI_MODEL", "").strip():
-            result.model = os.environ["GEMINI_MODEL"].strip()
+        if result.model.startswith("gemini-"):
+            result.model = DEFAULT_MODEL  # Preserve all other saved UI/GSI preferences.
+        if os.getenv("OPENAI_MODEL", "").strip():
+            result.model = os.environ["OPENAI_MODEL"].strip()
         return result
 
     def save(self, path):

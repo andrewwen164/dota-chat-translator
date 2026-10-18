@@ -202,9 +202,6 @@ def make_server(token, evidence, port=3009):
                 self.reply(404)
 
         def do_POST(self):
-            if self.path != "/gsi":
-                self.reply(404)
-                return
             if self.headers.get("Transfer-Encoding"):
                 self.reply(400)
                 return
@@ -219,6 +216,12 @@ def make_server(token, evidence, port=3009):
                 body = self.rfile.read(length)
                 if len(body) != length:
                     raise ValueError()
+                # Drain the bounded request body before closing a rejected
+                # endpoint. On Windows unread bytes can reset the connection
+                # before the client receives the 404 response.
+                if self.path != "/gsi":
+                    self.reply(404)
+                    return
                 payload = decode_payload(body)
             except (ValueError, OSError, socket.timeout):
                 self.reply(400)

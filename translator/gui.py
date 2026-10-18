@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from translator.config import Settings, data_dir
-from translator.core import Duplicates, ERROR_MESSAGES, Gemini, Job, Message, Result, TARGETS, Worker
+from translator.core import Duplicates, ERROR_MESSAGES, OpenAITranslator, Job, Message, Result, TARGETS, Worker
 from translator.demo import DemoApi, SAMPLES
 from translator.ingest import Mapping, Receiver, checked_path, discover_strings
 from translator.outgoing import ClipboardGuard
@@ -103,7 +103,7 @@ class Window(QMainWindow):
         title = QLabel("Dota Chat")
         title.setObjectName("title")
         layout.addWidget(title)
-        subtitle = QLabel("English translations · your key · local control")
+        subtitle = QLabel("English translations · OpenAI · your key · local control")
         subtitle.setObjectName("muted")
         layout.addWidget(subtitle)
         self.mode_label = QLabel("OFFLINE DEMO · labeled sample chat · no API requests" if demo else
@@ -135,8 +135,8 @@ class Window(QMainWindow):
         layout.addWidget(self.status)
         self.bridge = Bridge()
         self.bridge.result.connect(self.receive_result)
-        model = "offline-demo-v1" if demo else settings.model
-        api = DemoApi() if demo else Gemini(os.environ.get("GEMINI_API_KEY", ""), settings.model)
+        model = "offline-demo-v1" if demo else "openai:" + settings.model
+        api = DemoApi() if demo else OpenAITranslator(os.environ.get("OPENAI_API_KEY", ""), settings.model)
         self.worker = Worker(self.local / ("demo-cache.sqlite" if demo else "translations.sqlite"),
                              api, self.bridge.result.emit, model, rpm=120 if demo else settings.rpm)
         self.worker.start()
@@ -213,7 +213,7 @@ class Window(QMainWindow):
         page = QWidget()
         form = QFormLayout(page)
         self.model_input = QLineEdit(self.settings.model)
-        form.addRow("Gemini model (restart to apply)", self.model_input)
+        form.addRow("OpenAI model (restart to apply)", self.model_input)
         self.rpm_input = QSpinBox()
         self.rpm_input.setRange(1, 120)
         self.rpm_input.setValue(self.settings.rpm)
@@ -240,7 +240,7 @@ class Window(QMainWindow):
             form.addRow("Observed " + key + " path (JSON array)", widget)
         note = QLabel('Paths are selected from actual payloads. Use "*" for an array/object collection.\n'
                       'Identity/channel paths are optional. A blank event ID uses limited text deduplication.\n'
-                      'No key is stored in settings. Set GEMINI_API_KEY in your environment or ignored .env.')
+                      'No key is stored in settings. Set OPENAI_API_KEY in your environment or ignored .env.')
         note.setWordWrap(True)
         form.addRow(note)
         self.hotkey_check = QCheckBox("Enable foreground-Dota clipboard translation (Ctrl+Alt+Y; manual paste)")
@@ -396,13 +396,14 @@ class Window(QMainWindow):
                 connection += " · select chat field"
         else:
             connection = "GSI stopped"
-        key = os.environ.get("GEMINI_API_KEY", "")
-        key_status = "" if self.demo or (key and key != "your_gemini_api_key_here") else " · API key missing"
+        key = os.environ.get("OPENAI_API_KEY", "")
+        key_status = "" if self.demo or (key and key != "your_openai_api_key_here") else " · OpenAI API key missing"
         hotkey_status = ""
         if self.settings.outgoing_hotkey and not self.demo:
             hotkey_status = (" · Ctrl+Alt+Y → " + self.target.currentText()
                              if self.hotkeys and 0x4013 in self.hotkeys.registered else " · outgoing hotkey unavailable")
-        self.status.setText(f"{connection}{key_status} · queue {self.worker.jobs.qsize()}/64 · "
+        provider = "" if self.demo else " · OpenAI / " + self.worker.api.model
+        self.status.setText(f"{connection}{key_status}{provider} · queue {self.worker.jobs.qsize()}/64 · "
                             f"requests {metrics.get('requests', 0)} · cached {metrics.get('cache_hits', 0)} · "
                             f"failed {metrics.get('failures', 0)} · {metrics.get('last_latency_ms', 0):.0f} ms "
                             + self.worker.error + hotkey_status)

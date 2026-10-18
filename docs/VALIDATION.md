@@ -1,6 +1,6 @@
 # Validation record
 
-Windows 11; Python 3.12.15; PySide6 6.12.0; google-genai 2.31.0; Lingua 2.2.0;
+Windows 11; Python 3.12.15; PySide6 6.12.0; openai 3.35.1; Lingua 2.2.0;
 python-dotenv 1.2.4; PyInstaller 6.22.3. Date: 2026-10-18.
 
 ## User-observed live evidence
@@ -13,7 +13,7 @@ continuing assuming GSI is usable. This does not make synthetic fixtures live pr
 
 ## Development checks
 
-- 70 tests cover diagnostics, authentication, localhost binding, backups and marker
+- 74 tests cover diagnostics, authentication, localhost binding, backups and marker
   privacy; cache persistence/dimensions/pruning; duplicate snapshots and queue
   overflow; malformed input; API errors, retries, rate limits and timeouts;
   response parsing; configurable mappings and missing identities; clipboard guards,
@@ -22,8 +22,10 @@ continuing assuming GSI is usable. This does not make synthetic fixtures live pr
   of the original handler, without raising KeyboardInterrupt inside Qt callbacks.
   Safe-error tests cover key/model/permission/quota/server/network failures,
   original-text fallback, and prevention of remote-error-text disclosure.
-- The installed official SDK was tested through in-memory HTTP transport for
-  request serialization, structured responses, blocked results and HTTP 429.
+- The app was migrated from Gemini to OpenAI at the user's request. Official
+  OpenAI Responses SDK checks use in-memory HTTP transport for strict schema/input
+  serialization, refusal/incomplete handling, HTTP errors and disabled SDK retries.
+  A GUI check also verifies that a Gemini variable is never reused as an OpenAI key.
   No external API request or paid translation was made.
 - A real Qt event loop rendered four demo rows; outgoing demo translation and
   clipboard copy worked, with stale copy disabled after editing.
@@ -32,13 +34,15 @@ continuing assuming GSI is usable. This does not make synthetic fixtures live pr
   do not prove mouse passthrough or keyboard-focus behavior over a live game.
 - The PyInstaller Windows build completed and its EXE passed an offline startup/render
   smoke check. No `.env` or receiver token files were bundled. This does not verify
-  live Gemini or Dota in the package.
+  live API translation or Dota in the package. A fresh OpenAI build also passed
+  its offline EXE smoke check; prior packaged folders remain unchanged and still
+  contain the earlier provider. Use the new build or launch the updated source.
 
 ## Local checks still needed
 
 - Select actual chat fields; verify other players' team/all messages, channel
   values, identities, repeats and match transitions.
-- Use your Gemini key to verify model availability/quota, translation quality,
+- Use your OpenAI key to verify model availability/quota, translation quality,
   Dota terminology/tone/profanity, English skipping and live failure handling.
 - Test overlay visuals/click-through/focus, monitor/DPI behavior, dragging/resizing,
   tray restore and shortcut conflicts over actual borderless/windowed Dota.

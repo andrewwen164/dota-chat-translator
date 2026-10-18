@@ -80,3 +80,21 @@ class DesktopTests(unittest.TestCase):
                 self.assertFalse(window.worker.is_alive())
                 window.close()
                 self.app.processEvents()
+
+    def test_old_provider_key_is_not_reused_for_openai(self):
+        from translator.config import Settings
+        from translator.core import OpenAITranslator
+        from translator.gui import Window
+        with tempfile.TemporaryDirectory() as d, patch.dict("os.environ", {
+                "OPENAI_API_KEY": "", "GEMINI_API_KEY": "old-provider-test-placeholder"}):
+            window = Window(Settings(), local_path=Path(d))
+            try:
+                self.assertIsInstance(window.worker.api, OpenAITranslator)
+                self.assertEqual(window.worker.api.key, "")
+                window.poll()
+                self.assertIn("OpenAI API key missing", window.status.text())
+            finally:
+                window.quit()
+                window.worker.join(timeout=3)
+                window.close()
+                self.app.processEvents()
