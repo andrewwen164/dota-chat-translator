@@ -1,0 +1,6 @@
+# Direct versions used for local validation; optional exact reproduction install.
+PySide6==6.12.0
+google-genai==2.31.0
+python-dotenv==1.2.4
+lingua-language-detector==2.2.0
+pyinstaller==6.22.3

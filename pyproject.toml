@@ -1,12 +1,12 @@
 [project]
 name = "dota-chat-translator"
-version = "0.1.0"
-description = "Stage 1: local Dota GSI evidence collector (not yet a translator)"
+version = "0.2.0"
+description = "Personal Windows Dota chat translator with local GSI diagnostics"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["PySide6>=6.8,<7", "google-genai>=1.55,<3", "python-dotenv>=1,<2", "lingua-language-detector>=2,<3"]
 
 [project.optional-dependencies]
-desktop = ["PySide6>=6.8,<7"]
+build = ["pyinstaller>=6,<7"]
 
 [tool.unittest]
 start-directory = "tests"
