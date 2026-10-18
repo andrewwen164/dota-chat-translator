@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from translator.config import Settings, data_dir
-from translator.core import Duplicates, Gemini, Job, Message, Result, TARGETS, Worker
+from translator.core import Duplicates, ERROR_MESSAGES, Gemini, Job, Message, Result, TARGETS, Worker
 from translator.demo import DemoApi, SAMPLES
 from translator.ingest import Mapping, Receiver, checked_path, discover_strings
 from translator.outgoing import ClipboardGuard
@@ -406,6 +406,10 @@ class Window(QMainWindow):
                             f"requests {metrics.get('requests', 0)} · cached {metrics.get('cache_hits', 0)} · "
                             f"failed {metrics.get('failures', 0)} · {metrics.get('last_latency_ms', 0):.0f} ms "
                             + self.worker.error + hotkey_status)
+        reason = metrics.get("last_error_reason", "")
+        if reason:
+            self.status.setText(self.status.text() + "\n" + ERROR_MESSAGES.get(reason, "translation request failed")
+                                + (f" (HTTP {metrics['last_http_status']})" if metrics.get("last_http_status") else ""))
 
     def save_settings(self):
         try:

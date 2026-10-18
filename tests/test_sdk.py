@@ -10,11 +10,39 @@ try:
 except ImportError:
     SDK_AVAILABLE = False
 
-from translator.core import ApiFailure, Gemini
+from translator.core import ApiFailure, Gemini, classify_api_error
 
 
 @unittest.skipUnless(SDK_AVAILABLE, "Install requirements for SDK transport checks")
 class SDKTests(unittest.IsolatedAsyncioTestCase):
+    async def test_http_errors_are_actionable_without_remote_text(self):
+        cases = [(400, "API key not valid: SECRET_VALUE", "invalid_key"),
+                 (400, "bad schema SECRET_VALUE", "invalid_request"),
+                 (401, "SECRET_VALUE", "invalid_key"),
+                 (403, "SECRET_VALUE", "permission_denied"),
+                 (404, "SECRET_VALUE", "model_unavailable"),
+                 (429, "SECRET_VALUE", "quota"),
+                 (503, "SECRET_VALUE", "server")]
+        for code, message, reason in cases:
+            with self.subTest(code=code, reason=reason):
+                exc = type("RemoteError", (Exception,), {"code": code, "message": message})()
+                failure = classify_api_error(exc)
+                self.assertEqual(failure.reason, reason)
+                self.assertEqual(failure.http_status, code)
+                self.assertNotIn("SECRET_VALUE", str(failure))
+
+    async def test_network_errors_are_retryable_and_sanitized(self):
+        failure = classify_api_error(httpx.ConnectError("private hostname SECRET_VALUE"))
+        self.assertEqual(failure.reason, "network")
+        self.assertTrue(failure.retryable)
+        self.assertNotIn("SECRET_VALUE", str(failure))
+
+    async def test_missing_key_has_actionable_reason_without_request(self):
+        api = Gemini("", "example-model")
+        with self.assertRaises(ApiFailure) as raised:
+            await api.translate("hola", "English")
+        self.assertEqual(raised.exception.reason, "missing_key")
+
     async def test_real_sdk_serializes_untrusted_text_as_data(self):
         seen = []
         async def respond(request):
@@ -60,7 +88,8 @@ class SDKTests(unittest.IsolatedAsyncioTestCase):
         api.client = genai.Client(api_key=api.key, http_options=types.HttpOptions(
             async_client_args={"transport": httpx.MockTransport(respond)}))
         try:
-            with self.assertRaises(ApiFailure):
+            with self.assertRaises(ApiFailure) as raised:
                 await api.translate("hola", "English")
+            self.assertEqual(raised.exception.reason, "blocked")
         finally:
             await api.close()

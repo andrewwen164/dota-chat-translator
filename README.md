@@ -173,6 +173,12 @@ and `metrics.json`. Metrics contain counts, queue depth and latency, not chat te
 or keys. Raw snapshots and field previews are not saved. Never upload `.local`,
 `.env`, configuration backups or raw captures to GitHub.
 
+Translation failures now include a fixed, safe reason and HTTP status when
+available: missing/invalid key, denied access, unavailable model, quota, network,
+timeout, blocked/truncated response, or invalid output. Remote error text is
+never displayed or saved because it can contain chat or credentials. The last
+safe error category/status is included in the status bar and local metrics.
+
 ## Check and package
 
 ```powershell

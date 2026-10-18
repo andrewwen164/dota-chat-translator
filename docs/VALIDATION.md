@@ -13,13 +13,15 @@ continuing assuming GSI is usable. This does not make synthetic fixtures live pr
 
 ## Development checks
 
-- 66 tests cover diagnostics, authentication, localhost binding, backups and marker
+- 70 tests cover diagnostics, authentication, localhost binding, backups and marker
   privacy; cache persistence/dimensions/pruning; duplicate snapshots and queue
   overflow; malformed input; API errors, retries, rate limits and timeouts;
   response parsing; configurable mappings and missing identities; clipboard guards,
   safe worker cancellation, English skipping and settings backup failures.
   Console SIGINT tests verify deferred shutdown, repeated interrupts and restoration
   of the original handler, without raising KeyboardInterrupt inside Qt callbacks.
+  Safe-error tests cover key/model/permission/quota/server/network failures,
+  original-text fallback, and prevention of remote-error-text disclosure.
 - The installed official SDK was tested through in-memory HTTP transport for
   request serialization, structured responses, blocked results and HTTP 429.
   No external API request or paid translation was made.

@@ -185,6 +185,16 @@ class EngineTests(unittest.IsolatedAsyncioTestCase):
         await e.process(Job(Message("hola")))
         self.assertEqual(e.api.calls, 1)
 
+    async def test_safe_error_reason_and_code_in_result_and_metrics(self):
+        e = self.engine([ApiFailure(reason="model_unavailable", http_status=404)])
+        r = await e.process(Job(Message("hola")))
+        self.assertEqual(r.translation, "hola")
+        self.assertEqual(r.error_reason, "model_unavailable")
+        self.assertEqual(r.http_status, 404)
+        self.assertIn("model unavailable", r.status)
+        self.assertEqual(e.metrics["last_error_reason"], "model_unavailable")
+        self.assertEqual(e.metrics["last_http_status"], 404)
+
     async def test_timeout(self):
         class Slow(FakeApi):
             async def translate(self, text, target):
