@@ -546,6 +546,8 @@ class Window(QMainWindow):
             event.accept()
 
     def quit(self):
+        if self.quitting:
+            return
         self.quitting = True
         self.timer.stop()
         self.metrics_timer.stop()

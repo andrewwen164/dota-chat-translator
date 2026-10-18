@@ -123,6 +123,8 @@ alone does not verify incoming chat.
 - Closing the main window hides it to the tray when a tray is available. Use
   **Show app** or **Quit** in the tray. Showing the overlay never activates the
   main window. Exclusive fullscreen is not supported.
+- When launched from PowerShell, Ctrl+C also quits cleanly. Use the tray's Quit
+  command if running the windowed EXE without a console.
 
 ## Outgoing translation
 

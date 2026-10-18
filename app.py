@@ -9,6 +9,12 @@ def main():
     parser.add_argument("--demo", action="store_true", help="offline sample translations; no API calls")
     parser.add_argument("--smoke-test", action="store_true", help="offscreen window check; exits automatically")
     args = parser.parse_args()
+    from translator.lifecycle import ShutdownSignals
+    with ShutdownSignals() as shutdown:
+        return run_app(args, shutdown)
+
+
+def run_app(args, shutdown):
     if args.smoke_test:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
         args.demo = True
@@ -32,6 +38,9 @@ def main():
         print("Settings could not be read. Original settings retained; using defaults.")
         settings = Settings()
     window = Window(settings, demo=args.demo, local_path=data_dir() / "smoke" if args.smoke_test else None)
+    signal_timer = QTimer(app)
+    signal_timer.timeout.connect(lambda: shutdown.poll(window.quit))
+    signal_timer.start(100)
     window.show()
     if args.smoke_test:
         def check():
