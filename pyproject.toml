@@ -1,0 +1,12 @@
+[project]
+name = "dota-chat-translator"
+version = "0.1.0"
+description = "Stage 1: local Dota GSI evidence collector (not yet a translator)"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+desktop = ["PySide6>=6.8,<7"]
+
+[tool.unittest]
+start-directory = "tests"
